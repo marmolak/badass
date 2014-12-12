@@ -1,0 +1,53 @@
+How to diagnose this kind of bug with valgrind and vgdb.
+
+1) run under valgrind
+$ LD_LIBRARY_PATH=./ valgrind ./badas
+
+Output:
+... snip ...
+Doing stuff...
+==32210== Thread 2:
+==32210== Jump to the invalid address stated on the next line
+==32210==    at 0x503A768: ???
+==32210==  Address 0x503a768 is not stack'd, malloc'd or (recently) free'd
+==32210== 
+==32210== 
+==32210== Process terminating with default action of signal 11 (SIGSEGV)
+==32210==  Access not within mapped region at address 0x503A768
+==32210==    at 0x503A768: ???
+... snip ...
+
+You see that something is wrong on this address.
+Note: valgrind "disables" address space randomization.
+
+2) Ok. So let's try it with vgdb:
+First terminal:
+$ LD_LIBRARY_PATH=./ valgrind --vgdb=full --vgdb-error=0 ./badass
+
+Second terminal:
+gdb ./badass
+
+(gdb) target remote | /usr/lib64/valgrind/../../bin/vgdb --pid=32236
+(gdb) break main
+...
+(gdb) continue
+Continue until dlopen() call..
+
+
+And now we need sample of memory address space of process:
+$ cat /proc/32236/maps  | grep libbadass
+0503a000-0503b000 r-xp 00000000 00:23 16029070                           /tmp/badass/libbadass.so
+0503b000-0523a000 ---p 00001000 00:23 16029070                           /tmp/badass/libbadass.so
+0523a000-0523b000 r--p 00000000 00:23 16029070                           /tmp/badass/libbadass.so
+0523b000-0523c000 rw-p 00001000 00:23 16029070                           /tmp/badass/libbadass.so
+
+(gdb) next
+...
+Program received signal SIGTRAP, Trace/breakpoint trap.
+[Switching to Thread 32307]
+0x000000000503a768 in ?? ()
+
+Now we know that something is wrong inside libbadass.
+But how? We just opened that library with dlopen?
+Answer: Library constructor creates thread...
+
